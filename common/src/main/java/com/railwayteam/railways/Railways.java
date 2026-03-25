@@ -62,14 +62,16 @@ public class Railways {
   public static final String ID_NAME = "Railways";
   public static final String NAME = "Steam 'n' Rails";
   public static final Logger LOGGER = LoggerFactory.getLogger(ID_NAME);
-  // Only used for datafixers, bump whenever a block changes id etc. (should not be bumped multiple times within a release)
+  // Only used for datafixers, bump whenever a block changes id etc. (should not
+  // be bumped multiple times within a release)
   public static final int DATA_FIXER_VERSION = 2;
 
   private static final CreateRegistrate REGISTRATE = CreateRegistrate.create(MOD_ID);
 
   static {
-    REGISTRATE.setTooltipModifierFactory(item -> new ItemDescription.Modifier(item, TooltipHelper.Palette.STANDARD_CREATE)
-        .andThen(TooltipModifier.mapNull(KineticStats.create(item))));
+    REGISTRATE
+        .setTooltipModifierFactory(item -> new ItemDescription.Modifier(item, TooltipHelper.Palette.STANDARD_CREATE)
+            .andThen(TooltipModifier.mapNull(KineticStats.create(item))));
   }
 
   private static void migrateConfig(Path path, Function<String, String> converter) {
@@ -87,27 +89,32 @@ public class Railways {
           writer.write(migrated);
         }
       }
-    } catch (IOException ignored) {}
+    } catch (IOException ignored) {
+    }
   }
 
   public static void init() {
     String createVersion = MethodVarHandleUtils.getStaticField(Create.class, "VERSION", String.class, "UNKNOWN");
-    LOGGER.info("{} v{} initializing! Commit hash: {} on Create version: {} on platform: {}", NAME, RailwaysBuildInfo.VERSION, RailwaysBuildInfo.GIT_COMMIT, createVersion, Loader.getFormatted());
-    
+    LOGGER.info("{} v{} initializing! Commit hash: {} on Create version: {} on platform: {}", NAME,
+        RailwaysBuildInfo.VERSION, RailwaysBuildInfo.GIT_COMMIT, createVersion, Loader.getFormatted());
+
     Path configDir = Utils.configDir();
     Path clientConfigDir = configDir.resolve(MOD_ID + "-client.toml");
     migrateConfig(clientConfigDir, CRConfigs::migrateClient);
 
     Path commonConfigDir = configDir.resolve(MOD_ID + "-common.toml");
     migrateConfig(commonConfigDir, CRConfigs::migrateCommon);
-    
+
     ModSetup.register();
     finalizeRegistrate();
 
     registerCommands(CRCommands::register);
     CRPackets.PACKETS.registerC2SListener();
 
-    if (Utils.isDevEnv() && !Mods.BYG.isLoaded && !Mods.SODIUM.isLoaded && !Utils.isEnvVarTrue("DATAGEN")) // force all mixins to load in dev
+    if (Utils.isDevEnv() && !Mods.BYG.isLoaded && !Mods.SODIUM.isLoaded && !Utils.isEnvVarTrue("DATAGEN")) // force all
+                                                                                                           // mixins to
+                                                                                                           // load in
+                                                                                                           // dev
       MixinEnvironment.getCurrentEnvironment().audit();
   }
 

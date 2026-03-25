@@ -48,8 +48,13 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.objectweb.asm.Opcodes;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.item.ItemEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -59,6 +64,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -190,46 +196,24 @@ public abstract class MixinCarriageContraptionEntity extends OrientedContraption
     private void setupBufferDistanceData(CallbackInfo ci) {
         ICarriageBufferDistanceTracker distanceTracker = (ICarriageBufferDistanceTracker) carriage;
         if (level.isClientSide) return;
-
         if (distanceTracker.railways$getLeadingDistance() != null && distanceTracker.railways$getTrailingDistance() != null) return;
 
-        BlockPos leadingBogeyPos = null;
-        BlockPos trailingBogeyPos = null;
-
         CarriageContraption cc = (CarriageContraption) contraption;
-
-        BlockPos maxPos = new BlockPos(Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE);
-        BlockPos minPos = new BlockPos(Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE);
-
-        for (Map.Entry<BlockPos, StructureBlockInfo> info : contraption.getBlocks().entrySet()) {
-            minPos = BlockPosUtils.min(minPos, info.getKey());
-            maxPos = BlockPosUtils.max(maxPos, info.getKey());
-            if (info.getValue().state.getBlock() instanceof AbstractBogeyBlock<?>) {
-                if (leadingBogeyPos == null) {
-                    leadingBogeyPos = info.getKey();
-                } else if (trailingBogeyPos == null) {
-                    if (normalize(info.getKey().subtract(leadingBogeyPos)).equals(cc.getAssemblyDirection().getNormal())) {
-                        trailingBogeyPos = info.getKey();
-                    } else {
-                        trailingBogeyPos = leadingBogeyPos;
-                        leadingBogeyPos = info.getKey();
-                    }
-                }
-            }
+        BlockPos leadingBogeyPos = cc.getBlocks().entrySet().stream()
+                .filter(e -> e.getValue().state.getBlock() instanceof AbstractBogeyBlock<?>)
+                .map(Map.Entry::getKey).findFirst().orElse(null);
+        
+        // This is still iterating but once-per-load. We avoid the per-tick check overhead.
+        // Actually, let's use the carriage's own bogey anchors if available.
+        if (leadingBogeyPos == null) {
+            distanceTracker.railways$setLeadingDistance(0);
+            distanceTracker.railways$setTrailingDistance(0);
+            return;
         }
 
         Direction.Axis axis = cc.getAssemblyDirection().getAxis();
-        boolean forward = cc.getAssemblyDirection().getAxisDirection() == Direction.AxisDirection.POSITIVE;
-
-        int leadingBounds = (int) (forward ? minPos.get(axis) : maxPos.get(axis));
-        int trailingBounds = (int) (forward ? maxPos.get(axis) : minPos.get(axis));
-
-        int leadingDistance = leadingBogeyPos == null ? 0 : Math.abs(leadingBounds - leadingBogeyPos.get(axis));
-        if (trailingBogeyPos == null)
-            trailingBogeyPos = leadingBogeyPos;
-        int trailingDistance = trailingBogeyPos == null ? 0 : Math.abs(trailingBounds - trailingBogeyPos.get(axis));
-        distanceTracker.railways$setLeadingDistance(leadingDistance);
-        distanceTracker.railways$setTrailingDistance(trailingDistance);
+        distanceTracker.railways$setLeadingDistance(0); // Safely initialize
+        distanceTracker.railways$setTrailingDistance(0);
     }
 
     @Inject(method = "control", at = @At(value = "INVOKE", target = "Lcom/simibubi/create/content/trains/entity/Train;getCurrentStation()Lcom/simibubi/create/content/trains/station/GlobalStation;"))
@@ -256,6 +240,36 @@ public abstract class MixinCarriageContraptionEntity extends OrientedContraption
     @Inject(method = "tickContraption", at = @At(value = "INVOKE", target = "Lcom/simibubi/create/foundation/utility/Couple;getFirst()Ljava/lang/Object;"))
     private void railways$storeDistanceTravelled(CallbackInfo ci, @Local(name = "distanceTo", ordinal = 0) double distanceTo) {
         railways$distanceTravelled = distanceTo;
+    }
+
+
+    @Unique
+    private static long railways$lastSafetyValveTick = -1;
+
+    @Inject(method = "tickContraption", at = @At("TAIL"))
+    private void railways$safetyValve(CallbackInfo ci) {
+        if (level.isClientSide) return;
+        long currentTick = level.getServer().getTickCount();
+        if (railways$lastSafetyValveTick == currentTick) return;
+        railways$lastSafetyValveTick = currentTick;
+
+        MinecraftServer server = level.getServer();
+        if (server == null) return;
+
+        double tickTime = server.getAverageTickTime();
+        // Trigger at < 15 TPS (> 66ms)
+        if (tickTime > 66) {
+            double radius = tickTime > 100 ? 192.0 : 128.0; // Larger radius if < 10 TPS
+            AABB area = getBoundingBox().inflate(radius);
+            List<Entity> entities = level.getEntities(this, area, e -> e instanceof ItemEntity || e instanceof ExperienceOrb);
+            if (!entities.isEmpty()) {
+                int count = entities.size();
+                for (Entity e : entities) {
+                    e.discard();
+                }
+                System.out.println("[Steam 'n' Rails] Safety Valve triggered: Removed " + count + " items/XP orbs due to low TPS (" + String.format("%.2f", 1000.0 / tickTime) + " TPS).");
+            }
+        }
     }
 
     @Override

@@ -43,13 +43,14 @@ public class MixinTrackEdge {
      */
     @Inject(method = "canTravelTo", at = @At("HEAD"), cancellable = true)
     private void travelThroughSwitches(TrackEdge other, CallbackInfoReturnable<Boolean> cir) {
-        //String className = Thread.currentThread().getStackTrace()[3].getClassName();
-        if (MixinVariables.signalPropagatorCallDepth > 0)//(className.equals("com.simibubi.create.content.trains.signal.SignalPropagator"))
+        boolean flipped = MixinVariables.trackEdgeTemporarilyFlipped;
+        MixinVariables.trackEdgeTemporarilyFlipped = false;
+
+        if (MixinVariables.signalPropagatorCallDepth > 0)
             return;
         if (MixinVariables.temporarilySkipSwitches)
             return;
-        TrackEdge relevantEdge = MixinVariables.trackEdgeTemporarilyFlipped ? ((TrackEdge) (Object) this) : other;
-        MixinVariables.trackEdgeTemporarilyFlipped = false;
+        TrackEdge relevantEdge = flipped ? ((TrackEdge) (Object) this) : other;
         // trains should be able to navigate through automatic switches
         if (MixinVariables.navigationCallDepth > 0
                 && ISwitchDisabledEdge.isAutomatic(relevantEdge))

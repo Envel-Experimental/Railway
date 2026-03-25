@@ -27,6 +27,11 @@ import java.util.function.Supplier;
 public class EarlyRiser implements Runnable {
     @Override
     public void run() {
+        // Cap Netty threads for 2-core systems to prevent context switching lag
+        if (System.getProperty("io.netty.eventLoopThreads") == null) {
+            System.setProperty("io.netty.eventLoopThreads", "2");
+        }
+
         ClassTinkerers.enumBuilder("com.simibubi.create.content.contraptions.actors.roller.RollerBlockEntity$RollingMode", AllIcons.class)
                 .addEnum("TRACK_REPLACE", () -> { // wrap up safely to prevent premature classloading
                     Supplier<Supplier<Object[]>> supplier = (() -> () -> new Object[] {CRIcons.I_SWAP_TRACKS});

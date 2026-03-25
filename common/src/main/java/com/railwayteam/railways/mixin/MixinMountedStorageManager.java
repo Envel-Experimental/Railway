@@ -48,7 +48,17 @@ public abstract class MixinMountedStorageManager implements IFuelInventory {
 
     @Inject(method = "entityTick", at = @At("TAIL"))
     private void entityTick(AbstractContraptionEntity entity, CallbackInfo ci) {
-        railways$fluidFuelStorage.forEach((pos, mfs) -> mfs.tick(entity, pos, entity.level.isClientSide));
+        if (entity.level.isClientSide) {
+            railways$fluidFuelStorage.forEach((pos, mfs) -> mfs.tick(entity, pos, true));
+            return;
+        }
+        // Throttle server-side ticking to every 10 ticks, spread by BlockPos
+        long currentTick = entity.level.getGameTime();
+        railways$fluidFuelStorage.forEach((pos, mfs) -> {
+            if ((pos.hashCode() + currentTick) % 10 == 0) {
+                mfs.tick(entity, pos, false);
+            }
+        });
     }
 
     @SuppressWarnings({"ConstantConditions"})

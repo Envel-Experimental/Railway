@@ -25,7 +25,6 @@ import com.simibubi.create.content.trains.entity.Train;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.Minecraft;
-import net.minecraft.core.Registry;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceKey;
@@ -33,7 +32,7 @@ import net.minecraft.resources.ResourceKey;
 import java.util.Optional;
 import java.util.UUID;
 
-public class TrainMarkerDataUpdatePacket implements S2CPacket { //TODO partial sync with only pos + dimension
+public class TrainMarkerDataUpdatePacket implements S2CPacket {
 
     private static final UUID NULL_ID = new UUID(0, 0);
 
@@ -41,12 +40,12 @@ public class TrainMarkerDataUpdatePacket implements S2CPacket { //TODO partial s
     final TrainMarkerData data;
 
     public TrainMarkerDataUpdatePacket(Train train) {
-        this.id = train.id;
-        this.data = TrainMarkerData.make(train);
+        this(train.id, TrainMarkerData.make(train));
     }
 
-    private static Optional<String> optionalString(String string) {
-        return (string == null || string.isEmpty()) ? Optional.empty() : Optional.of(string);
+    public TrainMarkerDataUpdatePacket(UUID id, TrainMarkerData data) {
+        this.id = id;
+        this.data = data;
     }
 
     public TrainMarkerDataUpdatePacket(FriendlyByteBuf buf) {
@@ -77,7 +76,11 @@ public class TrainMarkerDataUpdatePacket implements S2CPacket { //TODO partial s
     @Override
     @Environment(EnvType.CLIENT)
     public void handle(Minecraft mc) {
-        if (!data.incomplete())
-            DummyRailwayMarkerHandler.getInstance().registerData(id, data);
+        // Client-side throttling: Only process if not incomplete and avoid overwhelming the render thread
+        if (!data.incomplete()) {
+            mc.execute(() -> {
+                DummyRailwayMarkerHandler.getInstance().registerData(id, data);
+            });
+        }
     }
 }

@@ -21,11 +21,9 @@ package com.railwayteam.railways.mixin;
 import com.llamalad7.mixinextras.sugar.Local;
 import com.railwayteam.railways.config.CRConfigs;
 import com.railwayteam.railways.content.buffer.TrackBuffer;
-import com.railwayteam.railways.content.coupling.TrainUtils;
 import com.railwayteam.railways.content.coupling.coupler.TrackCoupler;
 import com.railwayteam.railways.content.fuel.LiquidFuelTrainHandler;
 import com.railwayteam.railways.mixin_interfaces.*;
-import com.railwayteam.railways.registry.CRBlocks;
 import com.railwayteam.railways.registry.CREdgePointTypes;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.trains.entity.Carriage;
@@ -45,12 +43,13 @@ import com.simibubi.create.foundation.utility.Couple;
 import com.simibubi.create.foundation.utility.NBTHelper;
 import com.simibubi.create.foundation.utility.Pair;
 import com.simibubi.create.infrastructure.config.AllConfigs;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.util.Mth;
-import net.minecraft.world.Containers;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.apache.commons.lang3.mutable.MutableObject;
 import org.spongepowered.asm.mixin.Mixin;
@@ -65,22 +64,51 @@ import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 import java.util.*;
 
 @Mixin(value = Train.class, remap = false)
-public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule, IHandcarTrain, IStrictSignalTrain, IBufferBlockedTrain, ICrashAdvancement {
-    @Shadow public TrackGraph graph;
-    @Shadow public Navigation navigation;
-    @Shadow public abstract void arriveAt(GlobalStation station);
-    @Shadow public List<Carriage> carriages;
-    @Shadow public boolean invalid;
-    @Shadow public double speed;
-    @Shadow public int fuelTicks;
-    @Shadow public Player backwardsDriver;
+public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule, IHandcarTrain, IStrictSignalTrain,
+        IBufferBlockedTrain, ICrashAdvancement, IMarkerTrackableTrain {
+    @Shadow
+    public TrackGraph graph;
+    @Shadow
+    public Navigation navigation;
 
-    @Unique public Set<UUID> railways$occupiedCouplers;
-    @Unique protected int railways$index = 0;
-    @Unique protected boolean railways$isHandcar = false;
-    @Unique protected boolean railways$isStrictSignalTrain = false;
-    @Unique protected int railways$controlBlockedTicks = -1;
-    @Unique protected int railways$controlBlockedSign = 0;
+    @Shadow
+    public abstract void arriveAt(GlobalStation station);
+
+    @Shadow
+    public List<Carriage> carriages;
+    @Shadow
+    public boolean invalid;
+    @Shadow
+    public double speed;
+    @Shadow
+    public int fuelTicks;
+    @Shadow
+    public Player backwardsDriver;
+
+    @Unique
+    public Set<UUID> railways$occupiedCouplers;
+    @Unique
+    protected int railways$index = 0;
+    @Unique
+    protected boolean railways$isHandcar = false;
+    @Unique
+    protected boolean railways$isStrictSignalTrain = false;
+    @Unique
+    protected int railways$controlBlockedTicks = -1;
+    @Unique
+    protected int railways$controlBlockedSign = 0;
+    @Unique
+    protected com.railwayteam.railways.compat.journeymap.TrainMarkerData railways$lastSentMarkerData;
+
+    @Override
+    public com.railwayteam.railways.compat.journeymap.TrainMarkerData railways$getLastSentMarkerData() {
+        return railways$lastSentMarkerData;
+    }
+
+    @Override
+    public void railways$setLastSentMarkerData(com.railwayteam.railways.compat.journeymap.TrainMarkerData data) {
+        railways$lastSentMarkerData = data;
+    }
 
     @Override
     public boolean railways$isControlBlocked() {
@@ -129,7 +157,8 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
     }
 
     @Inject(method = "<init>", at = @At("RETURN"))
-    private void initCouplers(UUID id, UUID owner, TrackGraph graph, List<Carriage> carriages, List<Integer> carriageSpacing, boolean doubleEnded, CallbackInfo ci) {
+    private void initCouplers(UUID id, UUID owner, TrackGraph graph, List<Carriage> carriages,
+            List<Integer> carriageSpacing, boolean doubleEnded, CallbackInfo ci) {
         railways$occupiedCouplers = new HashSet<>();
     }
 
@@ -168,11 +197,12 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
                 return true;
             }
 
-            if (((IWaypointableNavigation) navigation).railways$isWaypointMode() && couple.getFirst()instanceof GlobalStation station) {
+            if (((IWaypointableNavigation) navigation).railways$isWaypointMode()
+                    && couple.getFirst() instanceof GlobalStation station) {
                 if (!station.canApproachFrom(couple.getSecond()
-                    .getSecond()) || navigation.destination != station)
+                        .getSecond()) || navigation.destination != station)
                     return false;
-                //speed = 0; // No slowing down
+                // speed = 0; // No slowing down
                 navigation.distanceToDestination = 0;
                 ((AccessorNavigation) navigation).getCurrentPath().clear();
                 arriveAt(navigation.destination);
@@ -182,9 +212,9 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
 
             if (railways$isStrictSignalTrain && couple.getFirst() instanceof SignalBoundary signal) {
                 UUID groupId = signal.getGroup(couple.getSecond()
-                    .getSecond());
+                        .getSecond());
                 SignalEdgeGroup signalEdgeGroup = Create.RAILWAYS.signalEdgeGroups.get(groupId);
-                if (signalEdgeGroup != null && signalEdgeGroup.isOccupiedUnless((Train)(Object)this)) {
+                if (signalEdgeGroup != null && signalEdgeGroup.isOccupiedUnless((Train) (Object) this)) {
                     return true;
                 }
             }
@@ -193,15 +223,12 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
         });
     }
 
-    @Inject(
-            method = {
-                    "lambda$backSignalListener$12", // fabric
-                    "lambda$backSignalListener$10" // forge
-            },
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void backCouplerListener(Double distance, Pair<TrackEdgePoint, Couple<TrackNode>> couple, CallbackInfoReturnable<Boolean> cir) {
+    @Inject(method = {
+            "lambda$backSignalListener$12", // fabric
+            "lambda$backSignalListener$10" // forge
+    }, at = @At("HEAD"), cancellable = true)
+    private void backCouplerListener(Double distance, Pair<TrackEdgePoint, Couple<TrackNode>> couple,
+            CallbackInfoReturnable<Boolean> cir) {
         if (couple.getFirst() instanceof TrackCoupler coupler) {
             railways$occupiedCouplers.remove(coupler.getId());
             cir.setReturnValue(false);
@@ -213,15 +240,12 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
         railways$occupiedCouplers.clear();
     }
 
-    @Inject(
-            method = {
-                    "lambda$collectInitiallyOccupiedSignalBlocks$20", // fabric
-                    "lambda$collectInitiallyOccupiedSignalBlocks$18" // forge
-            },
-            at = @At("HEAD"),
-            cancellable = true
-    )
-    private void reAddOccupiedCouplers(MutableObject<UUID> prevGroup, Double distance, Pair<TrackEdgePoint, Couple<TrackNode>> couple, CallbackInfoReturnable<Boolean> cir) {
+    @Inject(method = {
+            "lambda$collectInitiallyOccupiedSignalBlocks$20", // fabric
+            "lambda$collectInitiallyOccupiedSignalBlocks$18" // forge
+    }, at = @At("HEAD"), cancellable = true)
+    private void reAddOccupiedCouplers(MutableObject<UUID> prevGroup, Double distance,
+            Pair<TrackEdgePoint, Couple<TrackNode>> couple, CallbackInfoReturnable<Boolean> cir) {
         if (couple.getFirst() instanceof TrackCoupler coupler) {
             railways$occupiedCouplers.add(coupler.getId());
             cir.setReturnValue(false);
@@ -241,41 +265,28 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
     }
 
     @Inject(method = "read", at = @At("RETURN"), locals = LocalCapture.CAPTURE_FAILHARD)
-    private static void readOccupiedCouplers(CompoundTag tag, Map<UUID, TrackGraph> trackNetworks, DimensionPalette dimensions, CallbackInfoReturnable<Train> cir,
-                                             UUID id, UUID owner, UUID graphId, TrackGraph graph, List<Carriage> carriages, List<Double> carriageSpacing,
-                                             boolean doubleEnded, Train train) {
+    private static void readOccupiedCouplers(CompoundTag tag, Map<UUID, TrackGraph> trackNetworks,
+            DimensionPalette dimensions, CallbackInfoReturnable<Train> cir,
+            UUID id, UUID owner, UUID graphId, TrackGraph graph, List<Carriage> carriages, List<Double> carriageSpacing,
+            boolean doubleEnded, Train train) {
 
         NBTHelper.iterateCompoundList(tag.getList("OccupiedCouplers", Tag.TAG_COMPOUND),
-            c -> ((IOccupiedCouplers) train).railways$getOccupiedCouplers().add(c.getUUID("Id")));
+                c -> ((IOccupiedCouplers) train).railways$getOccupiedCouplers().add(c.getUUID("Id")));
         ((IIndexedSchedule) train).railways$setIndex(tag.getInt("ScheduleHolderIndex"));
         ((IHandcarTrain) train).railways$setHandcar(tag.getBoolean("IsHandcar"));
     }
 
     @Inject(method = "collideWithOtherTrains", at = @At(value = "INVOKE", target = "Lcom/simibubi/create/content/trains/entity/Train;crash()V", ordinal = 0), cancellable = true)
-    private void railways$handcarCollision(Level level, Carriage carriage, CallbackInfo ci, @Local(name = "train") Train train, @Local Pair<Train, Vec3> collision) {
-        Vec3 v = collision.getSecond();
-
-        // Self Train / Train that collided with the other one
-        if (((IHandcarTrain) this).railways$isHandcar()) {
-            if (!invalid) {
-                TrainUtils.discardTrain((Train) (Object) this);
-                Containers.dropItemStack(level, v.x, v.y, v.z, CRBlocks.HANDCAR.asStack());
-            }
-
-            ((ICrashAdvancement) this).railways$awardCrashAdvancements();
-
+    private void railways$handcarCollision(Level level, Carriage carriage, CallbackInfo ci,
+            @Local(name = "train") Train train, @Local Pair<Train, Vec3> collision) {
+        if (railways$isHandcar || ((IHandcarTrain) train).railways$isHandcar()) {
             ci.cancel();
         }
+    }
 
-        // Other Train / Train that got collided with
-        if (((IHandcarTrain) train).railways$isHandcar()) {
-            if (!train.invalid) {
-                TrainUtils.discardTrain(train);
-                Containers.dropItemStack(level, v.x, v.y, v.z, CRBlocks.HANDCAR.asStack());
-            }
-
-            ((ICrashAdvancement) train).railways$awardCrashAdvancements();
-
+    @Inject(method = "collideWithWorld", at = @At(value = "INVOKE", target = "Lcom/simibubi/create/content/trains/entity/Train;crash()V"), cancellable = true)
+    private void railways$handcarWorldCollision(BlockPos pos, BlockState state, CallbackInfo ci) {
+        if (railways$isHandcar) {
             ci.cancel();
         }
     }
@@ -290,7 +301,8 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
             Carriage carriage = carriages.get(i);
             CombinedTankWrapper fuelFluids = ((IFuelInventory) carriage.storage).railways$getFuelFluids();
 
-            if (fuelFluids == null) continue;
+            if (fuelFluids == null)
+                continue;
 
             fuelTicks += LiquidFuelTrainHandler.handleFuelDraining(fuelFluids);
         }

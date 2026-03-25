@@ -158,6 +158,7 @@ public class TrackSwitch extends SingleBlockEntityEdgePoint {
 
     @Override
     public void onRemoved(TrackGraph graph) {
+        setEdgesActive(graph);
         exits.clear();
         sortExits();
         removeFromAllGraphs();
@@ -392,7 +393,7 @@ public class TrackSwitch extends SingleBlockEntityEdgePoint {
         super.tick(graph, preTrains);
         if (preTrains) {
             ticks++;
-            if (ticks < 10) {
+            if (ticks < 2) {
                 return;
             }
             ticks = 0;

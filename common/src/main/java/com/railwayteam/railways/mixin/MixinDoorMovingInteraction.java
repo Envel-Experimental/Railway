@@ -28,6 +28,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -37,6 +38,36 @@ public class MixinDoorMovingInteraction {
     /*
     prevent players from just opening special doors unless sneaking
      */
+    @Unique
+    private static final java.util.Map<Player, Long> railways$lastInteraction = new java.util.WeakHashMap<>();
+
+    @Inject(method = "handle", at = @At("HEAD"), cancellable = true)
+    private void railways$throttleInteraction(Player player, Contraption contraption, BlockPos pos,
+                                              BlockState currentState, CallbackInfoReturnable<BlockState> cir) {
+        if (player == null) return;
+
+        // Restriction 0: OP Only (User request)
+        if (!player.hasPermissions(2)) {
+            cir.setReturnValue(currentState);
+            return;
+        }
+
+        // Restriction 1: No interacting while moving (prevents "Entity Bomb" source during motion)
+        if (contraption.entity != null && contraption.entity.getDeltaMovement().horizontalDistanceSqr() > 0.001) {
+            cir.setReturnValue(currentState);
+            return;
+        }
+
+        // Restriction 2: 5-second cooldown to prevent spamming
+        long now = System.currentTimeMillis();
+        long last = railways$lastInteraction.getOrDefault(player, 0L);
+        if (now - last < 5000) {
+            cir.setReturnValue(currentState);
+            return;
+        }
+        railways$lastInteraction.put(player, now);
+    }
+
     @Inject(
         method = "handle",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/world/level/block/state/BlockState;getBlock()Lnet/minecraft/world/level/block/Block;", ordinal = 1, remap = true),

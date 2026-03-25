@@ -423,6 +423,9 @@ public abstract class MixinNavigation implements IWaypointableNavigation, IGener
 
     @Inject(method = "tick", at = @At("HEAD"))
     private void respectBuffersWithoutSchedule(Level level, CallbackInfo ci) {
+        if (train.speed == 0 && train.backwardsDriver == null && !train.navigation.isActive()) return;
+        // Throttle graph search from 20 times/sec to ~6.6 times/sec to fix unsmooth train movement CPU spikes
+        if (level.getGameTime() % 3 != 0) return;
         railways$updateControlsBlockInternal(false, false);
     }
 
