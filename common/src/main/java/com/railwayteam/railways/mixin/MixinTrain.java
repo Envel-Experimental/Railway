@@ -43,13 +43,11 @@ import com.simibubi.create.foundation.utility.Couple;
 import com.simibubi.create.foundation.utility.NBTHelper;
 import com.simibubi.create.foundation.utility.Pair;
 import com.simibubi.create.infrastructure.config.AllConfigs;
-import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.apache.commons.lang3.mutable.MutableObject;
 import org.spongepowered.asm.mixin.Mixin;
@@ -284,12 +282,6 @@ public abstract class MixinTrain implements IOccupiedCouplers, IIndexedSchedule,
         }
     }
 
-    @Inject(method = "collideWithWorld", at = @At(value = "INVOKE", target = "Lcom/simibubi/create/content/trains/entity/Train;crash()V"), cancellable = true)
-    private void railways$handcarWorldCollision(BlockPos pos, BlockState state, CallbackInfo ci) {
-        if (railways$isHandcar) {
-            ci.cancel();
-        }
-    }
 
     @Inject(method = "burnFuel", at = @At(value = "INVOKE", target = "Ljava/util/List;size()I", shift = At.Shift.AFTER))
     private void railways$fluidFuelsSystem(CallbackInfo ci) {
